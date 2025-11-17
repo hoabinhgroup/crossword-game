@@ -28,7 +28,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { createRoom as createRoomInDb, getBatch, generateRoomCode, addPlayer } from '../firebase/db.js';
+import { createRoom as createRoomInDb, getBatch, generateRoomCode, addPlayer, generateSessionId } from '../firebase/db.js';
 import { generatePlayerId } from '../utils/helpers.js';
 
 const props = defineProps({
@@ -68,12 +68,17 @@ const createRoom = async () => {
     const playerId = generatePlayerId();
     hostPlayerId.value = playerId;
     
+    // Tạo session ID cho room này
+    const sessionId = generateSessionId();
+    
     const roomData = {
       batchId: props.batchId,
       hostId: playerId,
+      sessionId: sessionId,
       players: {},
       answers: {},
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      sessionStartTime: Date.now()
     };
     
     // Initialize answers

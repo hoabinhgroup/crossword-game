@@ -28,6 +28,8 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
 
 # Build outputs
 dist/

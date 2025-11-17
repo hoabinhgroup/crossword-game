@@ -116,8 +116,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { watchRoom, getBatch, submitAnswer as submitAnswerToDb, updatePlayer, updateRoom } from '../firebase/db.js';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { watchRoom, getBatch, getRoom, submitAnswer as submitAnswerToDb, updatePlayer, updateRoom, saveRanking, generateSessionId, saveSessionLeaderboard } from '../firebase/db.js';
 import { calculateScore, formatTime } from '../utils/helpers.js';
 
 const props = defineProps({
@@ -143,6 +143,8 @@ const batch = ref(null);
 const answers = ref({});
 const answerStatus = ref({});
 const gameTime = ref(0);
+const sessionId = ref(null);
+const sessionStartTime = ref(null);
 let gameTimer = null;
 let unsubscribe = null;
 
@@ -163,6 +165,118 @@ const gameEnded = computed(() => {
   return words.every(wordId => room.value.answers?.[wordId]?.correct);
 });
 
+const rankingSaved = ref(false);
+const lastSavedRoomCode = ref(null);
+
+// Watch gameEnded và lưu xếp hạng khi game kết thúc
+watch(() => gameEnded.value, async (ended) => {
+  if (ended && room.value && room.value.batchId) {
+    // Chỉ lưu một lần cho mỗi room (tránh lưu nhiều lần khi watch trigger nhiều lần)
+    const roomKey = `${room.value.batchId}_${props.roomCode}`;
+    if (rankingSaved.value && lastSavedRoomCode.value === roomKey) {
+      return; // Đã lưu rồi
+    }
+
+    try {
+      // Lưu xếp hạng tổng hợp (tích lũy)
+      await saveRanking(room.value.batchId, room.value.players || {});
+
+      // Lưu session leaderboard
+      if (sessionId.value && sessionStartTime.value) {
+        const duration = Math.floor((Date.now() - sessionStartTime.value) / 1000);
+        const now = new Date();
+        const createdAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+
+        // Tính số câu trả lời đúng cho mỗi người chơi
+        const sessionPlayers = {};
+        Object.entries(room.value.players || {}).forEach(([playerId, playerData]) => {
+          // Đếm số câu trả lời đúng của người chơi này
+          let correctCount = 0;
+          Object.values(room.value.answers || {}).forEach(answer => {
+            if (answer?.correct && answer?.answeredBy === playerId) {
+              correctCount++;
+            }
+          });
+
+          sessionPlayers[playerId] = {
+            name: playerData.name,
+            score: playerData.score || 0,
+            correct: correctCount
+          };
+        });
+
+        await saveSessionLeaderboard(room.value.batchId, sessionId.value, {
+          createdAt,
+          players: sessionPlayers,
+          duration
+        });
+      }
+
+      rankingSaved.value = true;
+      lastSavedRoomCode.value = roomKey;
+    } catch (error) {
+      console.error('Error saving ranking:', error);
+    }
+  }
+});
+
+// Reset khi room thay đổi
+watch(() => props.roomCode, () => {
+  rankingSaved.value = false;
+  lastSavedRoomCode.value = null;
+  processedAnswers.value.clear();
+  sessionId.value = null;
+  sessionStartTime.value = null;
+});
+
+// Track các answer đã được xử lý để tránh cộng điểm nhiều lần
+const processedAnswers = ref(new Set());
+
+// Watch room answers để tự động cập nhật điểm khi có người khác trả lời đúng
+watch(() => room.value?.answers, async (newAnswers, oldAnswers) => {
+  if (!newAnswers || !room.value) return;
+
+  // Kiểm tra từng answer mới
+  Object.entries(newAnswers).forEach(async ([wordId, answerData]) => {
+    if (!answerData?.correct || !answerData?.answeredBy) return;
+
+    // Tạo key để track answer đã xử lý
+    const answerKey = `${wordId}_${answerData.answeredBy}`;
+
+    // Nếu đã xử lý rồi thì bỏ qua
+    if (processedAnswers.value.has(answerKey)) return;
+
+    // Đánh dấu đã xử lý
+    processedAnswers.value.add(answerKey);
+
+    // Lấy điểm hiện tại của người trả lời đúng
+    const answeredByPlayerId = answerData.answeredBy;
+    let currentScore = room.value.players?.[answeredByPlayerId]?.score || 0;
+
+    // Đọc lại từ Firebase để đảm bảo chính xác
+    try {
+      const latestRoom = await getRoom(props.roomCode);
+      if (latestRoom?.players?.[answeredByPlayerId]) {
+        currentScore = latestRoom.players[answeredByPlayerId].score || 0;
+      }
+    } catch (e) {
+      console.warn('Could not fetch latest room data for score update:', e);
+    }
+
+    // Cập nhật điểm cho người trả lời đúng
+    const points = calculateScore(10);
+    try {
+      await updatePlayer(props.roomCode, answeredByPlayerId, {
+        score: currentScore + points
+      });
+    } catch (error) {
+      console.error('Error updating score for answered player:', error);
+      // Nếu lỗi, xóa khỏi processed để có thể thử lại
+      processedAnswers.value.delete(answerKey);
+    }
+  });
+}, { deep: true });
+
 onMounted(async () => {
   // Load batch
   unsubscribe = watchRoom(props.roomCode, async (roomData) => {
@@ -177,6 +291,22 @@ onMounted(async () => {
           Object.keys(batch.value.words).forEach(wordId => {
             answers.value[wordId] = '';
           });
+        }
+
+        // Đánh dấu các answer đã có sẵn là đã xử lý (tránh cộng điểm lại)
+        if (roomData.answers) {
+          Object.entries(roomData.answers).forEach(([wordId, answerData]) => {
+            if (answerData?.correct && answerData?.answeredBy) {
+              const answerKey = `${wordId}_${answerData.answeredBy}`;
+              processedAnswers.value.add(answerKey);
+            }
+          });
+        }
+
+        // Lấy sessionId từ room (đã được tạo khi tạo room)
+        if (!sessionId.value && roomData.sessionId) {
+          sessionId.value = roomData.sessionId;
+          sessionStartTime.value = roomData.sessionStartTime || Date.now();
         }
 
         // Start game timer
@@ -218,6 +348,11 @@ const submitAnswer = async (wordId, correctAnswer) => {
 
   if (isCorrect) {
     try {
+      // Đánh dấu answer này sẽ được xử lý bởi chính người chơi này
+      // (để tránh watcher cộng điểm thêm lần nữa)
+      const answerKey = `${wordId}_${props.playerId}`;
+      processedAnswers.value.add(answerKey);
+
       // Submit answer to Firebase
       await submitAnswerToDb(props.roomCode, wordId, {
         answeredBy: props.playerId,
@@ -225,8 +360,21 @@ const submitAnswer = async (wordId, correctAnswer) => {
         timestamp: Date.now()
       });
 
+      // Lấy điểm hiện tại từ Firebase để đảm bảo tính chính xác
+      // (tránh race condition khi trả lời nhiều câu liên tiếp)
+      let currentScore = 0;
+      try {
+        const latestRoom = await getRoom(props.roomCode);
+        if (latestRoom?.players?.[props.playerId]) {
+          currentScore = latestRoom.players[props.playerId].score || 0;
+        }
+      } catch (e) {
+        // Fallback: dùng giá trị từ room.value nếu không đọc được
+        currentScore = room.value?.players?.[props.playerId]?.score || 0;
+        console.warn('Could not fetch latest room data, using cached value:', e);
+      }
+
       // Update player score
-      const currentScore = room.value.players[props.playerId]?.score || 0;
       const points = calculateScore(10);
       await updatePlayer(props.roomCode, props.playerId, {
         score: currentScore + points
@@ -236,6 +384,10 @@ const submitAnswer = async (wordId, correctAnswer) => {
       answerStatus.value[wordId] = null;
       answers.value[wordId] = '';
     } catch (error) {
+      // Nếu lỗi, xóa khỏi processed để có thể thử lại
+      const answerKey = `${wordId}_${props.playerId}`;
+      processedAnswers.value.delete(answerKey);
+
       answerStatus.value[wordId] = {
         correct: false,
         message: 'Lỗi: ' + error.message
@@ -285,6 +437,7 @@ const startNewRound = async () => {
     gameTime.value = 0;
     answers.value = {};
     answerStatus.value = {};
+    processedAnswers.value.clear(); // Reset processed answers khi bắt đầu round mới
   } catch (error) {
     alert('Lỗi: ' + error.message);
   }

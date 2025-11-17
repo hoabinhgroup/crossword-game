@@ -84,3 +84,21 @@ Cấu trúc firebase dạng:
     }
   }
 }
+
+// thêm bảng leaderboards để lưu xếp hạng của người chơi mỗi bài
+leaderboards
+ └── batch_1
+        ├── session_20250101_153000
+        │      ├── createdAt: "2025-01-01 15:30:00"
+        │      ├── players:
+        │      │     ├── player_abc
+        │      │     │     ├── name: "Linh"
+        │      │     │     ├── score: 45
+        │      │     │     └── correct: 5
+        │      │     └── player_xyz
+        │      │            ├── name: "Nam"
+        │      │            ├── score: 30
+        │      │            └── correct: 3
+        │      └── duration: 180   // thời gian chơi (giây)
+        ├── session_20250105_204500
+        └── ...
