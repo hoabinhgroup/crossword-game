@@ -32,7 +32,6 @@ dist-ssr
 .env.development
 
 # Build outputs
-dist/
 build/
 *.tsbuildinfo
 
