@@ -1,5 +1,17 @@
 <template>
   <div class="container">
+    <!-- Timer Display - Fixed ở góc trên bên phải -->
+    <div v-if="room && (room.timerEnabled === true || room.timerEnabled === 'true')" 
+         class="timer-display-fixed" 
+         :class="{ 'timer-warning': timeRemaining !== null && timeRemaining <= 60, 'timer-danger': timeRemaining !== null && timeRemaining <= 30 }">
+      <div class="timer-icon">⏱️</div>
+      <div class="timer-content">
+        <span v-if="room.timerStartTime && timeRemaining !== null && timeRemaining > 0" class="timer-time">{{ formatTimeRemaining(timeRemaining) }}</span>
+        <span v-else-if="room.timerStartTime && timeRemaining === 0" class="timer-time" style="color: #dc3545;">00:00</span>
+        <span v-else class="timer-waiting">Chờ bắt đầu...</span>
+      </div>
+    </div>
+
     <div v-if="loading" class="loading">Đang tải...</div>
     <div v-else-if="!room || !batch || !batch.words" class="error">Không tìm thấy phòng hoặc đợt học</div>
     <div v-else>
@@ -28,8 +40,12 @@
 
       <!-- Game Summary (if game ended) -->
       <div v-if="gameEnded" class="container">
-        <h2>🎉 Kết Thúc Trò Chơi!</h2>
-        <div class="success-message">
+        <h2 v-if="timerExpired">⏰ Hết Thời Gian!</h2>
+        <h2 v-else>🎉 Kết Thúc Trò Chơi!</h2>
+        <div v-if="timerExpired" class="error-message" style="background: #fee; color: #c33; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+          Thời gian đã hết! Kết quả đã được lưu tự động.
+        </div>
+        <div v-else class="success-message">
           Tất cả câu hỏi đã được giải!
         </div>
         <table class="summary-table">
@@ -54,8 +70,8 @@
         <p style="text-align: center; margin-top: 16px; color: #666;">
           Thời gian: {{ formatTime(gameTime) }}
         </p>
-        <button v-if="isHost" @click="startNewRound">Bắt đầu vòng mới</button>
-        <button class="secondary" @click="$emit('back')">Quay lại</button>
+        <button v-if="isHost && !timerExpired" @click="startNewRound">Bắt đầu vòng mới</button>
+        <button class="secondary" @click="handleLeaveRoom">Quay lại</button>
       </div>
 
       <!-- Questions -->
@@ -84,8 +100,8 @@
               <div class="answer-input">
                 <input v-model="answers[wordId]" :placeholder="'_'.repeat(word.answer.length)"
                   :maxlength="word.answer.length" @keyup.enter="submitAnswer(wordId, word.answer)"
-                  :disabled="room.answers?.[wordId]?.correct" />
-                <button @click="submitAnswer(wordId, word.answer)">Gửi</button>
+                  :disabled="room.answers?.[wordId]?.correct || timerExpired" />
+                <button @click="submitAnswer(wordId, word.answer)" :disabled="timerExpired">Gửi</button>
               </div>
 
               <div v-if="answerStatus[wordId]" class="answer-status"
@@ -108,7 +124,7 @@
         </ul>
       </div>
 
-      <button class="secondary" @click="$emit('back')" style="margin-top: 20px;">
+      <button class="secondary" @click="handleLeaveRoom" style="margin-top: 20px;">
         Rời phòng
       </button>
     </div>
@@ -117,7 +133,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { watchRoom, getBatch, getRoom, submitAnswer as submitAnswerToDb, updatePlayer, updateRoom, saveRanking, generateSessionId, saveSessionLeaderboard } from '../firebase/db.js';
+import { watchRoom, getBatch, getRoom, submitAnswer as submitAnswerToDb, updatePlayer, updateRoom, saveRanking, generateSessionId, saveSessionLeaderboard, removePlayer } from '../firebase/db.js';
 import { calculateScore, formatTime } from '../utils/helpers.js';
 
 const props = defineProps({
@@ -145,7 +161,10 @@ const answerStatus = ref({});
 const gameTime = ref(0);
 const sessionId = ref(null);
 const sessionStartTime = ref(null);
+const timeRemaining = ref(null);
+const timerExpired = ref(false);
 let gameTimer = null;
+let timerCheckInterval = null;
 let unsubscribe = null;
 
 const sortedPlayers = computed(() => {
@@ -159,6 +178,7 @@ const sortedPlayers = computed(() => {
 });
 
 const gameEnded = computed(() => {
+  if (timerExpired.value) return true;
   if (!room.value || !batch.value || !batch.value.words || !room.value.answers) return false;
   const words = Object.keys(batch.value.words);
   if (words.length === 0) return false;
@@ -227,7 +247,171 @@ watch(() => props.roomCode, () => {
   processedAnswers.value.clear();
   sessionId.value = null;
   sessionStartTime.value = null;
+  timeRemaining.value = null;
+  timerExpired.value = false;
 });
+
+// Watch timer and calculate remaining time - Realtime sync
+watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.timerDuration], 
+  ([enabled, startTime, duration]) => {
+    // Clear existing interval trước
+    if (timerCheckInterval) {
+      clearInterval(timerCheckInterval);
+      timerCheckInterval = null;
+    }
+    
+    // Kiểm tra timerEnabled (có thể là boolean hoặc string)
+    const isTimerEnabled = enabled === true || enabled === 'true';
+    
+    console.log('Timer watch triggered:', {
+      enabled,
+      isTimerEnabled,
+      startTime,
+      duration,
+      hasStartTime: !!startTime,
+      hasDuration: duration !== null && duration !== undefined,
+      playerId: props.playerId,
+      isHost: props.isHost
+    });
+    
+    if (isTimerEnabled && startTime && duration !== null && duration !== undefined) {
+      // Tính toán thời gian còn lại ngay lập tức
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.max(0, duration - elapsed);
+      timeRemaining.value = remaining;
+      
+      console.log('Timer initialized:', {
+        enabled: isTimerEnabled,
+        startTime,
+        duration,
+        elapsed,
+        remaining,
+        playerId: props.playerId,
+        isHost: props.isHost
+      });
+      
+      // Nếu đã hết thời gian, xử lý ngay
+      if (remaining <= 0 && !timerExpired.value) {
+        handleTimerExpired();
+        return;
+      }
+      
+      // Start checking timer every second để đồng bộ realtime
+      timerCheckInterval = setInterval(() => {
+        updateTimeRemaining();
+        if (timeRemaining.value !== null && timeRemaining.value <= 0 && !timerExpired.value) {
+          handleTimerExpired();
+        }
+      }, 1000);
+    } else {
+      timeRemaining.value = null;
+      if (isTimerEnabled && !startTime) {
+        console.log('Timer enabled but not started yet - waiting for host to start', {
+          playerId: props.playerId,
+          isHost: props.isHost
+        });
+      } else if (!isTimerEnabled) {
+        console.log('Timer not enabled', {
+          playerId: props.playerId,
+          isHost: props.isHost
+        });
+      }
+    }
+  },
+  { immediate: true }
+);
+
+const updateTimeRemaining = () => {
+  // Kiểm tra timerEnabled đúng cách (có thể là boolean hoặc string)
+  const isTimerEnabled = room.value?.timerEnabled === true || room.value?.timerEnabled === 'true';
+  
+  if (!isTimerEnabled || !room.value?.timerStartTime || room.value?.timerDuration === null || room.value?.timerDuration === undefined) {
+    timeRemaining.value = null;
+    return;
+  }
+  
+  // Tính toán dựa trên timerStartTime từ Firebase để đảm bảo đồng bộ
+  // Tất cả client sẽ tính toán từ cùng một timerStartTime
+  const elapsed = Math.floor((Date.now() - room.value.timerStartTime) / 1000);
+  const remaining = Math.max(0, room.value.timerDuration - elapsed);
+  timeRemaining.value = remaining;
+  
+  // Debug log (có thể xóa sau)
+  if (remaining <= 10) {
+    console.log('Timer remaining:', remaining, 'seconds', 'timerStartTime:', room.value.timerStartTime);
+  }
+};
+
+const formatTimeRemaining = (seconds) => {
+  if (seconds === null || seconds === undefined) return '--:--';
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const handleTimerExpired = async () => {
+  if (timerExpired.value) return; // Already handled
+  timerExpired.value = true;
+  
+  try {
+    // Save results before kicking players out
+    if (room.value && room.value.batchId) {
+      // Save ranking
+      await saveRanking(room.value.batchId, room.value.players || {});
+      
+      // Save session leaderboard
+      if (sessionId.value && sessionStartTime.value) {
+        const duration = Math.floor((Date.now() - sessionStartTime.value) / 1000);
+        const now = new Date();
+        const createdAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        
+        const sessionPlayers = {};
+        Object.entries(room.value.players || {}).forEach(([playerId, playerData]) => {
+          let correctCount = 0;
+          Object.values(room.value.answers || {}).forEach(answer => {
+            if (answer?.correct && answer?.answeredBy === playerId) {
+              correctCount++;
+            }
+          });
+          
+          sessionPlayers[playerId] = {
+            name: playerData.name,
+            score: playerData.score || 0,
+            correct: correctCount
+          };
+        });
+        
+        await saveSessionLeaderboard(room.value.batchId, sessionId.value, {
+          createdAt,
+          players: sessionPlayers,
+          duration,
+          endedBy: 'timer'
+        });
+      }
+    }
+    
+    // Remove all players from room
+    if (room.value?.players) {
+      const playerIds = Object.keys(room.value.players);
+      await Promise.all(playerIds.map(playerId => removePlayer(props.roomCode, playerId)));
+    }
+    
+    // Show message and redirect after a delay
+    setTimeout(() => {
+      emit('back');
+    }, 3000);
+  } catch (error) {
+    console.error('Error handling timer expiration:', error);
+    // Still redirect even if save fails
+    setTimeout(() => {
+      emit('back');
+    }, 3000);
+  }
+};
+
+const handleLeaveRoom = () => {
+  emit('back');
+};
 
 // Track các answer đã được xử lý để tránh cộng điểm nhiều lần
 const processedAnswers = ref(new Set());
@@ -281,6 +465,23 @@ onMounted(async () => {
   // Load batch
   unsubscribe = watchRoom(props.roomCode, async (roomData) => {
     room.value = roomData;
+    
+    // Debug timer settings (realtime sync)
+    if (roomData) {
+      const isTimerEnabled = roomData.timerEnabled === true || roomData.timerEnabled === 'true';
+      const calculatedRemaining = isTimerEnabled && roomData.timerStartTime && roomData.timerDuration 
+        ? Math.max(0, roomData.timerDuration - Math.floor((Date.now() - roomData.timerStartTime) / 1000))
+        : null;
+      console.log('Room data updated (realtime):', {
+        timerEnabled: roomData.timerEnabled,
+        isTimerEnabled: isTimerEnabled,
+        timerDuration: roomData.timerDuration,
+        timerStartTime: roomData.timerStartTime,
+        currentTime: Date.now(),
+        calculatedRemaining: calculatedRemaining,
+        willShowTimer: isTimerEnabled
+      });
+    }
     if (roomData && !batch.value) {
       try {
         batch.value = await getBatch(roomData.batchId);
@@ -312,7 +513,9 @@ onMounted(async () => {
         // Start game timer
         if (gameTimer) clearInterval(gameTimer);
         gameTimer = setInterval(() => {
-          gameTime.value++;
+          if (!timerExpired.value) {
+            gameTime.value++;
+          }
         }, 1000);
       } catch (error) {
         console.error('Error loading batch:', error);
@@ -320,12 +523,16 @@ onMounted(async () => {
     } else if (!roomData) {
       loading.value = false;
     }
+    
+    // Timer sẽ được xử lý bởi watch() ở trên để đảm bảo đồng bộ realtime
+    // Không cần khởi tạo lại ở đây vì watch() sẽ tự động trigger khi room.value thay đổi
   });
 });
 
 onUnmounted(() => {
   if (unsubscribe) unsubscribe();
   if (gameTimer) clearInterval(gameTimer);
+  if (timerCheckInterval) clearInterval(timerCheckInterval);
 });
 
 const submitAnswer = async (wordId, correctAnswer) => {

@@ -532,3 +532,111 @@ label {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
+/* Timer Styles */
+.timer-display {
+  transition: all 0.3s;
+}
+
+.timer-display.timer-warning {
+  background: #fff3cd !important;
+  color: #856404;
+  animation: pulse 1s infinite;
+}
+
+.timer-display.timer-danger {
+  background: #f8d7da !important;
+  color: #721c24;
+  animation: pulse 0.5s infinite;
+}
+
+/* Fixed Timer ở góc màn hình */
+.timer-display-fixed {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: white;
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 120px;
+  transition: all 0.3s;
+  border: 2px solid #e0e0e0;
+}
+
+.timer-display-fixed .timer-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.timer-display-fixed .timer-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.timer-display-fixed .timer-time {
+  font-size: 20px;
+  font-weight: bold;
+  color: #333;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-display-fixed .timer-waiting {
+  font-size: 12px;
+  color: #999;
+  font-weight: normal;
+}
+
+.timer-display-fixed.timer-warning {
+  background: #fff3cd !important;
+  border-color: #ffc107;
+  animation: pulse 1s infinite;
+}
+
+.timer-display-fixed.timer-warning .timer-time {
+  color: #856404;
+}
+
+.timer-display-fixed.timer-danger {
+  background: #f8d7da !important;
+  border-color: #dc3545;
+  animation: pulse 0.5s infinite;
+}
+
+.timer-display-fixed.timer-danger .timer-time {
+  color: #721c24;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.02);
+  }
+}
+
+@media (max-width: 480px) {
+  .timer-display-fixed {
+    top: 10px;
+    right: 10px;
+    padding: 10px 12px;
+    min-width: 100px;
+  }
+  
+  .timer-display-fixed .timer-icon {
+    font-size: 20px;
+  }
+  
+  .timer-display-fixed .timer-time {
+    font-size: 18px;
+  }
+}
+

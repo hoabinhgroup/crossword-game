@@ -68,6 +68,10 @@ export const updatePlayer = async (roomCode, playerId, updates) => {
   await update(playerRef(roomCode, playerId), updates);
 };
 
+export const removePlayer = async (roomCode, playerId) => {
+  await remove(playerRef(roomCode, playerId));
+};
+
 // Answers
 export const answerRef = (roomCode, wordId) => ref(database, `rooms/${roomCode}/answers/${wordId}`);
 
