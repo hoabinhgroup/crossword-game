@@ -23,8 +23,13 @@ function fileToBase64(file) {
 export const uploadImage = async (file, path = 'images/') => {
   try {
     // Kiểm tra GitHub token
-    if (!GITHUB_CONFIG.token) {
-      throw new Error('Chưa cấu hình GitHub token. Vui lòng thêm VITE_GITHUB_TOKEN vào file .env');
+    if (!GITHUB_CONFIG.token || GITHUB_CONFIG.token === '') {
+      throw new Error('Chưa cấu hình GitHub token. Vui lòng:\n1. Tạo file .env từ .env.example\n2. Thêm VITE_GITHUB_TOKEN vào file .env\n3. Khởi động lại ứng dụng (npm run dev)');
+    }
+    
+    // Kiểm tra token có format hợp lệ không (bắt đầu bằng ghp_ hoặc github_pat_)
+    if (!GITHUB_CONFIG.token.startsWith('ghp_') && !GITHUB_CONFIG.token.startsWith('github_pat_')) {
+      console.warn('GitHub token có vẻ không đúng format. Token thường bắt đầu bằng "ghp_" hoặc "github_pat_"');
     }
 
     // Kiểm tra kích thước file (GitHub giới hạn 100MB, nhưng nên giới hạn nhỏ hơn)
@@ -45,10 +50,17 @@ export const uploadImage = async (file, path = 'images/') => {
     // Upload lên GitHub
     const url = `https://api.github.com/repos/${GITHUB_CONFIG.repo}/contents/${filePath}`;
     
+    // Xác định format Authorization header dựa trên loại token
+    // Classic tokens: token ghp_xxx
+    // Fine-grained tokens: Bearer github_pat_xxx
+    const authHeader = GITHUB_CONFIG.token.startsWith('github_pat_') 
+      ? `Bearer ${GITHUB_CONFIG.token}`
+      : `token ${GITHUB_CONFIG.token}`;
+    
     const response = await fetch(url, {
       method: 'PUT',
       headers: {
-        'Authorization': `token ${GITHUB_CONFIG.token}`,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'Accept': 'application/vnd.github.v3+json'
       },
@@ -62,12 +74,22 @@ export const uploadImage = async (file, path = 'images/') => {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       
+      // Xử lý lỗi bad credentials
+      if (response.status === 401) {
+        throw new Error('GitHub token không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại VITE_GITHUB_TOKEN trong file .env và khởi động lại ứng dụng.');
+      }
+      
+      // Xử lý lỗi không tìm thấy repository
+      if (response.status === 404) {
+        throw new Error(`Không tìm thấy repository: ${GITHUB_CONFIG.repo}. Vui lòng kiểm tra lại VITE_GITHUB_REPO trong file .env.`);
+      }
+      
       // Nếu file đã tồn tại, thử update
       if (response.status === 422 && errorData.message?.includes('already exists')) {
         // Lấy SHA của file hiện tại để update
         const getResponse = await fetch(`https://api.github.com/repos/${GITHUB_CONFIG.repo}/contents/${filePath}`, {
           headers: {
-            'Authorization': `token ${GITHUB_CONFIG.token}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json'
           }
         });
@@ -77,7 +99,7 @@ export const uploadImage = async (file, path = 'images/') => {
           const updateResponse = await fetch(url, {
             method: 'PUT',
             headers: {
-              'Authorization': `token ${GITHUB_CONFIG.token}`,
+              'Authorization': authHeader,
               'Content-Type': 'application/json',
               'Accept': 'application/vnd.github.v3+json'
             },
@@ -131,11 +153,16 @@ export const deleteImage = async (filePath) => {
       }
     }
 
+    // Xác định format Authorization header
+    const authHeader = GITHUB_CONFIG.token.startsWith('github_pat_') 
+      ? `Bearer ${GITHUB_CONFIG.token}`
+      : `token ${GITHUB_CONFIG.token}`;
+    
     // Lấy SHA của file để xóa
     const getUrl = `https://api.github.com/repos/${GITHUB_CONFIG.repo}/contents/${filePath}`;
     const getResponse = await fetch(getUrl, {
       headers: {
-        'Authorization': `token ${GITHUB_CONFIG.token}`,
+        'Authorization': authHeader,
         'Accept': 'application/vnd.github.v3+json'
       }
     });
@@ -151,7 +178,7 @@ export const deleteImage = async (filePath) => {
     const deleteResponse = await fetch(deleteUrl, {
       method: 'DELETE',
       headers: {
-        'Authorization': `token ${GITHUB_CONFIG.token}`,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'Accept': 'application/vnd.github.v3+json'
       },

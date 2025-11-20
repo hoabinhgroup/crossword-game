@@ -1,132 +1,150 @@
 <template>
-  <div class="container">
-    <!-- Timer Display - Fixed ở góc trên bên phải -->
-    <div v-if="room && (room.timerEnabled === true || room.timerEnabled === 'true')" 
-         class="timer-display-fixed" 
-         :class="{ 'timer-warning': timeRemaining !== null && timeRemaining <= 60, 'timer-danger': timeRemaining !== null && timeRemaining <= 30 }">
-      <div class="timer-icon">⏱️</div>
-      <div class="timer-content">
-        <span v-if="room.timerStartTime && timeRemaining !== null && timeRemaining > 0" class="timer-time">{{ formatTimeRemaining(timeRemaining) }}</span>
-        <span v-else-if="room.timerStartTime && timeRemaining === 0" class="timer-time" style="color: #dc3545;">00:00</span>
-        <span v-else class="timer-waiting">Chờ bắt đầu...</span>
+  <div class="game-room-wrapper">
+    <!-- Fixed Top Menu -->
+    <div class="fixed-top-menu">
+      <div class="top-menu-left">
+        <!-- Timer -->
+        <div v-if="room && (room.timerEnabled === true || room.timerEnabled === 'true')" class="top-menu-timer"
+          :class="{ 'timer-warning': timeRemaining !== null && timeRemaining <= 60, 'timer-danger': timeRemaining !== null && timeRemaining <= 30 }">
+          <span class="timer-icon-small">⏱️</span>
+          <span v-if="room.timerStartTime && timeRemaining !== null && timeRemaining > 0" class="timer-time-small">{{
+            formatTimeRemaining(timeRemaining) }}</span>
+          <span v-else-if="room.timerStartTime && timeRemaining === 0" class="timer-time-small"
+            style="color: #dc3545;">00:00</span>
+          <span v-else class="timer-waiting-small">Chờ...</span>
+        </div>
+      </div>
+
+      <div class="top-menu-center">
+        <!-- Room Code -->
+        <div class="top-menu-room-code">
+          <span class="room-code-label">Mã phòng:</span>
+          <span class="room-code-value">{{ roomCode }}</span>
+        </div>
+      </div>
+
+      <div class="top-menu-right">
+        <!-- Leaderboard Icon -->
+        <button class="leaderboard-icon-btn" @click="showLeaderboardPopup = true" title="Bảng xếp hạng">
+          <span class="leaderboard-icon">🏆</span>
+          <span v-if="Object.keys(sortedPlayers).length > 0" class="leaderboard-badge">{{
+            Object.keys(sortedPlayers).length }}</span>
+        </button>
       </div>
     </div>
 
-    <div v-if="loading" class="loading">Đang tải...</div>
-    <div v-else-if="!room || !batch || !batch.words" class="error">Không tìm thấy phòng hoặc đợt học</div>
-    <div v-else>
-      <!-- Header -->
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <h1>{{ batch.title }}</h1>
-        <div class="room-code" style="font-size: 20px; padding: 8px 16px; margin: 0;">
-          {{ roomCode }}
-        </div>
-      </div>
-
-      <!-- Leaderboard -->
-      <div class="container" style="margin-bottom: 20px;">
-        <h2>🏆 Bảng Xếp Hạng</h2>
-        <ul class="leaderboard">
-          <li v-for="(player, playerId, index) in sortedPlayers" :key="playerId" class="leaderboard-item"
-            :class="`rank-${index + 1}`">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <span class="rank">#{{ index + 1 }}</span>
-              <span class="player-name">{{ player.name }}</span>
-            </div>
-            <span class="player-score">{{ player.score }} điểm</span>
-          </li>
-        </ul>
-      </div>
-
-      <!-- Game Summary (if game ended) -->
-      <div v-if="gameEnded" class="container">
-        <h2 v-if="timerExpired">⏰ Hết Thời Gian!</h2>
-        <h2 v-else>🎉 Kết Thúc Trò Chơi!</h2>
-        <div v-if="timerExpired" class="error-message" style="background: #fee; color: #c33; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-          Thời gian đã hết! Kết quả đã được lưu tự động.
-        </div>
-        <div v-else class="success-message">
-          Tất cả câu hỏi đã được giải!
-        </div>
-        <table class="summary-table">
-          <thead>
-            <tr>
-              <th>Câu hỏi</th>
-              <th>Người trả lời</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(word, wordId) in batch.words" :key="wordId">
-              <td>{{ word.clue }}</td>
-              <td>
-                <span v-if="room.answers?.[wordId]">
-                  {{ getPlayerName(room.answers[wordId]?.answeredBy) }}
-                </span>
-                <span v-else style="color: #999;">Chưa có</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <p style="text-align: center; margin-top: 16px; color: #666;">
-          Thời gian: {{ formatTime(gameTime) }}
-        </p>
-        <button v-if="isHost && !timerExpired" @click="startNewRound">Bắt đầu vòng mới</button>
-        <button class="secondary" @click="handleLeaveRoom">Quay lại</button>
-      </div>
-
-      <!-- Questions -->
+    <!-- Content với padding-top để tránh bị che bởi fixed menu -->
+    <div class="game-room-content">
+      <div v-if="loading" class="loading">Đang tải...</div>
+      <div v-else-if="!room || !batch || !batch.words" class="error">Không tìm thấy phòng hoặc đợt học</div>
       <div v-else>
-        <h2>📝 Câu Hỏi</h2>
-        <ul class="question-list">
-          <li v-for="(word, wordId) in batch.words" :key="wordId" class="question-item" :class="{
-            'solved': room.answers?.[wordId]?.correct,
-            'locked': room.answers?.[wordId]?.correct
-          }">
-            <div class="question-clue">
-              <div v-if="word.imageUrl" class="question-image">
-                <img :src="word.imageUrl" :alt="word.clue" />
-              </div>
-              <div>{{ word.clue }}</div>
-            </div>
+        <!-- Header -->
+        <div class="container" style="margin-top: 0;">
+          <h1>{{ batch.title }}</h1>
+        </div>
 
-            <div v-if="room.answers?.[wordId]?.correct" class="answer-status correct">
-              ✅ Đã giải! Đáp án: {{ word.answer.toUpperCase() }}
-              <div class="answered-by">
-                Trả lời bởi: {{ getPlayerName(room.answers[wordId]?.answeredBy) }}
-              </div>
-            </div>
+        <!-- Game Summary (if game ended) -->
+        <div v-if="gameEnded" class="container">
+          <h2 v-if="timerExpired">⏰ Hết Thời Gian!</h2>
+          <h2 v-else>🎉 Kết Thúc Trò Chơi!</h2>
+          <div v-if="timerExpired" class="error-message"
+            style="background: #fee; color: #c33; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+            Thời gian đã hết! Kết quả đã được lưu tự động.
+          </div>
+          <div v-else class="success-message">
+            Tất cả câu hỏi đã được giải!
+          </div>
+          <table class="summary-table">
+            <thead>
+              <tr>
+                <th>Câu hỏi</th>
+                <th>Người trả lời</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(word, wordId) in batch.words" :key="wordId">
+                <td>{{ word.clue }}</td>
+                <td>
+                  <span v-if="room.answers?.[wordId]">
+                    {{ getPlayerName(room.answers[wordId]?.answeredBy) }}
+                  </span>
+                  <span v-else style="color: #999;">Chưa có</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p style="text-align: center; margin-top: 16px; color: #666;">
+            Thời gian: {{ formatTime(gameTime) }}
+          </p>
+          <button v-if="isHost && !timerExpired" @click="startNewRound">Bắt đầu vòng mới</button>
+          <button class="secondary" @click="handleLeaveRoom">Quay lại</button>
+        </div>
 
-            <div v-else>
-              <div class="answer-input">
-                <input v-model="answers[wordId]" :placeholder="'_'.repeat(word.answer.length)"
-                  :maxlength="word.answer.length" @keyup.enter="submitAnswer(wordId, word.answer)"
-                  :disabled="room.answers?.[wordId]?.correct || timerExpired" />
-                <button @click="submitAnswer(wordId, word.answer)" :disabled="timerExpired">Gửi</button>
+        <!-- Questions -->
+        <div v-else>
+          <h2>📝 Câu Hỏi</h2>
+          <ul class="question-list">
+            <li v-for="(word, wordId) in batch.words" :key="wordId" class="question-item" :class="{
+              'solved': room.answers?.[wordId]?.correct,
+              'locked': room.answers?.[wordId]?.correct
+            }">
+              <div class="question-clue">
+                <div v-if="word.imageUrl" class="question-image">
+                  <img :src="word.imageUrl" :alt="word.clue" />
+                </div>
+                <div>{{ word.clue }}</div>
               </div>
 
-              <div v-if="answerStatus[wordId]" class="answer-status"
-                :class="answerStatus[wordId].correct ? 'correct' : 'incorrect'">
-                {{ answerStatus[wordId].message }}
+              <div v-if="room.answers?.[wordId]?.correct" class="answer-status correct">
+                ✅ Đã giải! Đáp án: {{ word.answer.toUpperCase() }}
+                <div class="answered-by">
+                  Trả lời bởi: {{ getPlayerName(room.answers[wordId]?.answeredBy) }}
+                </div>
               </div>
-            </div>
-          </li>
-        </ul>
+
+              <div v-else>
+                <div class="answer-input">
+                  <input v-model="answers[wordId]" :placeholder="'_'.repeat(word.answer.length)"
+                    :maxlength="word.answer.length" @keyup.enter="submitAnswer(wordId, word.answer)"
+                    :disabled="room.answers?.[wordId]?.correct || timerExpired" />
+                  <button @click="submitAnswer(wordId, word.answer)" :disabled="timerExpired">Gửi</button>
+                </div>
+
+                <div v-if="answerStatus[wordId]" class="answer-status"
+                  :class="answerStatus[wordId].correct ? 'correct' : 'incorrect'">
+                  {{ answerStatus[wordId].message }}
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+
       </div>
+    </div>
 
-      <!-- Players List -->
-      <div class="container" style="margin-top: 20px;">
-        <h3>👥 Người Chơi ({{ Object.keys(room.players || {}).length }})</h3>
-        <ul class="player-list">
-          <li v-for="(player, playerId) in room.players" :key="playerId" class="player-item">
-            <span class="player-name">{{ player.name }}</span>
-            <span class="player-score">{{ player.score }} điểm</span>
-          </li>
-        </ul>
+    <!-- Leaderboard Popup -->
+    <div v-if="showLeaderboardPopup" class="leaderboard-popup-overlay" @click="showLeaderboardPopup = false">
+      <div class="leaderboard-popup" @click.stop>
+        <div class="leaderboard-popup-header">
+          <h2>🏆 Bảng Xếp Hạng</h2>
+          <button class="popup-close-btn" @click="showLeaderboardPopup = false">✕</button>
+        </div>
+        <div class="leaderboard-popup-content">
+          <ul class="leaderboard">
+            <li v-for="(player, playerId, index) in sortedPlayers" :key="playerId" class="leaderboard-item"
+              :class="`rank-${Math.min(index + 1, 3)}`">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="rank">#{{ index + 1 }}</span>
+                <span class="player-name">{{ player.name }}</span>
+              </div>
+              <span class="player-score">{{ player.score }} điểm</span>
+            </li>
+            <li v-if="Object.keys(sortedPlayers).length === 0" class="leaderboard-empty">
+              Chưa có người chơi
+            </li>
+          </ul>
+        </div>
       </div>
-
-      <button class="secondary" @click="handleLeaveRoom" style="margin-top: 20px;">
-        Rời phòng
-      </button>
     </div>
   </div>
 </template>
@@ -163,6 +181,7 @@ const sessionId = ref(null);
 const sessionStartTime = ref(null);
 const timeRemaining = ref(null);
 const timerExpired = ref(false);
+const showLeaderboardPopup = ref(false);
 let gameTimer = null;
 let timerCheckInterval = null;
 let unsubscribe = null;
@@ -252,17 +271,17 @@ watch(() => props.roomCode, () => {
 });
 
 // Watch timer and calculate remaining time - Realtime sync
-watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.timerDuration], 
+watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.timerDuration],
   ([enabled, startTime, duration]) => {
     // Clear existing interval trước
     if (timerCheckInterval) {
       clearInterval(timerCheckInterval);
       timerCheckInterval = null;
     }
-    
+
     // Kiểm tra timerEnabled (có thể là boolean hoặc string)
     const isTimerEnabled = enabled === true || enabled === 'true';
-    
+
     console.log('Timer watch triggered:', {
       enabled,
       isTimerEnabled,
@@ -273,13 +292,13 @@ watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.t
       playerId: props.playerId,
       isHost: props.isHost
     });
-    
+
     if (isTimerEnabled && startTime && duration !== null && duration !== undefined) {
       // Tính toán thời gian còn lại ngay lập tức
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const remaining = Math.max(0, duration - elapsed);
       timeRemaining.value = remaining;
-      
+
       console.log('Timer initialized:', {
         enabled: isTimerEnabled,
         startTime,
@@ -289,13 +308,13 @@ watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.t
         playerId: props.playerId,
         isHost: props.isHost
       });
-      
+
       // Nếu đã hết thời gian, xử lý ngay
       if (remaining <= 0 && !timerExpired.value) {
         handleTimerExpired();
         return;
       }
-      
+
       // Start checking timer every second để đồng bộ realtime
       timerCheckInterval = setInterval(() => {
         updateTimeRemaining();
@@ -324,18 +343,18 @@ watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.t
 const updateTimeRemaining = () => {
   // Kiểm tra timerEnabled đúng cách (có thể là boolean hoặc string)
   const isTimerEnabled = room.value?.timerEnabled === true || room.value?.timerEnabled === 'true';
-  
+
   if (!isTimerEnabled || !room.value?.timerStartTime || room.value?.timerDuration === null || room.value?.timerDuration === undefined) {
     timeRemaining.value = null;
     return;
   }
-  
+
   // Tính toán dựa trên timerStartTime từ Firebase để đảm bảo đồng bộ
   // Tất cả client sẽ tính toán từ cùng một timerStartTime
   const elapsed = Math.floor((Date.now() - room.value.timerStartTime) / 1000);
   const remaining = Math.max(0, room.value.timerDuration - elapsed);
   timeRemaining.value = remaining;
-  
+
   // Debug log (có thể xóa sau)
   if (remaining <= 10) {
     console.log('Timer remaining:', remaining, 'seconds', 'timerStartTime:', room.value.timerStartTime);
@@ -352,19 +371,19 @@ const formatTimeRemaining = (seconds) => {
 const handleTimerExpired = async () => {
   if (timerExpired.value) return; // Already handled
   timerExpired.value = true;
-  
+
   try {
     // Save results before kicking players out
     if (room.value && room.value.batchId) {
       // Save ranking
       await saveRanking(room.value.batchId, room.value.players || {});
-      
+
       // Save session leaderboard
       if (sessionId.value && sessionStartTime.value) {
         const duration = Math.floor((Date.now() - sessionStartTime.value) / 1000);
         const now = new Date();
         const createdAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-        
+
         const sessionPlayers = {};
         Object.entries(room.value.players || {}).forEach(([playerId, playerData]) => {
           let correctCount = 0;
@@ -373,14 +392,14 @@ const handleTimerExpired = async () => {
               correctCount++;
             }
           });
-          
+
           sessionPlayers[playerId] = {
             name: playerData.name,
             score: playerData.score || 0,
             correct: correctCount
           };
         });
-        
+
         await saveSessionLeaderboard(room.value.batchId, sessionId.value, {
           createdAt,
           players: sessionPlayers,
@@ -389,13 +408,13 @@ const handleTimerExpired = async () => {
         });
       }
     }
-    
+
     // Remove all players from room
     if (room.value?.players) {
       const playerIds = Object.keys(room.value.players);
       await Promise.all(playerIds.map(playerId => removePlayer(props.roomCode, playerId)));
     }
-    
+
     // Show message and redirect after a delay
     setTimeout(() => {
       emit('back');
@@ -465,11 +484,11 @@ onMounted(async () => {
   // Load batch
   unsubscribe = watchRoom(props.roomCode, async (roomData) => {
     room.value = roomData;
-    
+
     // Debug timer settings (realtime sync)
     if (roomData) {
       const isTimerEnabled = roomData.timerEnabled === true || roomData.timerEnabled === 'true';
-      const calculatedRemaining = isTimerEnabled && roomData.timerStartTime && roomData.timerDuration 
+      const calculatedRemaining = isTimerEnabled && roomData.timerStartTime && roomData.timerDuration
         ? Math.max(0, roomData.timerDuration - Math.floor((Date.now() - roomData.timerStartTime) / 1000))
         : null;
       console.log('Room data updated (realtime):', {
@@ -523,7 +542,7 @@ onMounted(async () => {
     } else if (!roomData) {
       loading.value = false;
     }
-    
+
     // Timer sẽ được xử lý bởi watch() ở trên để đảm bảo đồng bộ realtime
     // Không cần khởi tạo lại ở đây vì watch() sẽ tự động trigger khi room.value thay đổi
   });
