@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue';
 import { getRoom, saveRanking, saveSessionLeaderboard, removePlayer } from '../firebase/db.js';
 import { useRouter } from 'vue-router';
+import { playTimerWarningSound, playTimerDangerSound, playGameEndSound } from '../utils/sounds.js';
 
 /**
  * Composable for managing game timer
@@ -25,6 +26,11 @@ export function useGameTimer(room) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Track previous remaining time to detect transitions
+  let previousRemaining = null;
+  let lastWarningSound = 0;
+  let lastDangerSound = 0;
+
   /**
    * Update time remaining based on room data
    */
@@ -34,12 +40,33 @@ export function useGameTimer(room) {
     if (!isTimerEnabledValue || !room.value?.timerStartTime || 
         room.value?.timerDuration === null || room.value?.timerDuration === undefined) {
       timeRemaining.value = null;
+      previousRemaining = null;
       return;
     }
 
     const elapsed = Math.floor((Date.now() - room.value.timerStartTime) / 1000);
     const remaining = Math.max(0, room.value.timerDuration - elapsed);
     timeRemaining.value = remaining;
+
+    // Play warning sounds when crossing thresholds
+    const now = Date.now();
+    
+    // Play danger sound when entering last 30 seconds (only once)
+    if (remaining <= 30 && remaining > 0 && (previousRemaining === null || previousRemaining > 30)) {
+      if (now - lastDangerSound > 1000) {
+        playTimerDangerSound();
+        lastDangerSound = now;
+      }
+    }
+    // Play warning sound when entering last 60 seconds (only once)
+    else if (remaining <= 60 && remaining > 30 && (previousRemaining === null || previousRemaining > 60)) {
+      if (now - lastWarningSound > 1000) {
+        playTimerWarningSound();
+        lastWarningSound = now;
+      }
+    }
+
+    previousRemaining = remaining;
   };
 
   /**
@@ -48,6 +75,9 @@ export function useGameTimer(room) {
   const handleTimerExpired = async () => {
     if (timerExpired.value) return;
     timerExpired.value = true;
+
+    // Play game end sound
+    playGameEndSound();
 
     try {
       // Save results before handling expiration

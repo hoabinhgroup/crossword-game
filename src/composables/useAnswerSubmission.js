@@ -1,5 +1,7 @@
 import { getRoom, submitAnswer as submitAnswerToDb, updatePlayer } from '../firebase/db.js';
 import { calculateScore } from '../utils/helpers.js';
+import { triggerConfetti } from '../utils/confetti.js';
+import { playSuccessSound, playErrorSound } from '../utils/sounds.js';
 
 /**
  * Composable for handling answer submission
@@ -53,6 +55,10 @@ export function useAnswerSubmission(props, room, answers, answerStatus, arranged
           score: currentScore + points
         });
 
+        // Play success sound and trigger confetti
+        playSuccessSound();
+        triggerConfetti();
+
         answerStatus.value[wordId] = null;
         answers.value[wordId] = '';
       } catch (error) {
@@ -62,6 +68,9 @@ export function useAnswerSubmission(props, room, answers, answerStatus, arranged
         };
       }
     } else {
+      // Play error sound for wrong answer
+      playErrorSound();
+      
       answerStatus.value[wordId] = {
         correct: false,
         message: '❌ Sai rồi! Hãy thử lại.'
@@ -116,6 +125,10 @@ export function useAnswerSubmission(props, room, answers, answerStatus, arranged
           score: currentScore + points
         });
 
+        // Play success sound and trigger confetti
+        playSuccessSound();
+        triggerConfetti();
+
         answerStatus.value[wordId] = null;
         arrangedLetters.value[wordId] = [];
       } catch (error) {
@@ -125,6 +138,9 @@ export function useAnswerSubmission(props, room, answers, answerStatus, arranged
         };
       }
     } else {
+      // Play error sound for wrong answer
+      playErrorSound();
+      
       answerStatus.value[wordId] = {
         correct: false,
         message: '❌ Sai rồi! Hãy sắp xếp lại.'
