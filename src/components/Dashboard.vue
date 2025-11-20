@@ -46,7 +46,7 @@
 
     <div v-else>
       <button @click="startAdd">+ Thêm Bài Học Mới</button>
-      <button class="secondary" @click="$emit('join-room')" style="margin-top: 10px;">
+      <button class="secondary" @click="router.push('/join-room')" style="margin-top: 10px;">
         🎮 Tham Gia Phòng
       </button>
     </div>
@@ -135,7 +135,9 @@ import { watchBatches, createBatch, updateBatch, deleteBatch as deleteBatchFromD
 import { uploadImage } from '../firebase/storage.js';
 import { formatTime } from '../utils/helpers.js';
 
-const emit = defineEmits(['create-room', 'join-room']);
+import { useRouter } from 'vue-router';
+
+const router = useRouter();
 
 const batches = ref({});
 const rankings = ref({});
@@ -322,7 +324,7 @@ const deleteBatch = async (batchId) => {
 };
 
 const createRoom = (batchId) => {
-  emit('create-room', batchId);
+  router.push(`/create-room/${batchId}`);
 };
 
 const viewRanking = async (batchId) => {

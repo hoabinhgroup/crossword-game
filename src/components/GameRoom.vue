@@ -18,7 +18,7 @@
       <div class="top-menu-center">
         <!-- Room Code -->
         <div class="top-menu-room-code">
-          <span class="room-code-label">Mã phòng:</span>
+          <!-- <span class="room-code-label">Mã phòng:</span> -->
           <span class="room-code-value">{{ roomCode }}</span>
         </div>
       </div>
@@ -29,6 +29,10 @@
           <span class="leaderboard-icon">🏆</span>
           <span v-if="Object.keys(sortedPlayers).length > 0" class="leaderboard-badge">{{
             Object.keys(sortedPlayers).length }}</span>
+        </button>
+        <!-- Leave Room Button -->
+        <button class="leave-room-btn" @click="handleLeaveRoom" title="Rời phòng">
+          <span class="leave-room-icon">🚪</span>
         </button>
       </div>
     </div>
@@ -154,6 +158,11 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { watchRoom, getBatch, getRoom, submitAnswer as submitAnswerToDb, updatePlayer, updateRoom, saveRanking, generateSessionId, saveSessionLeaderboard, removePlayer } from '../firebase/db.js';
 import { calculateScore, formatTime } from '../utils/helpers.js';
 
+import { useRouter, useRoute } from 'vue-router';
+
+const route = useRoute();
+const router = useRouter();
+
 const props = defineProps({
   roomCode: {
     type: String,
@@ -162,14 +171,13 @@ const props = defineProps({
   playerId: {
     type: String,
     required: true
-  },
-  isHost: {
-    type: Boolean,
-    default: false
   }
 });
 
-const emit = defineEmits(['back']);
+// Determine if current player is host
+const isHost = computed(() => {
+  return room.value?.hostId === props.playerId;
+});
 
 const loading = ref(true);
 const room = ref(null);
@@ -290,7 +298,7 @@ watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.t
       hasStartTime: !!startTime,
       hasDuration: duration !== null && duration !== undefined,
       playerId: props.playerId,
-      isHost: props.isHost
+      isHost: isHost.value
     });
 
     if (isTimerEnabled && startTime && duration !== null && duration !== undefined) {
@@ -306,7 +314,7 @@ watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.t
         elapsed,
         remaining,
         playerId: props.playerId,
-        isHost: props.isHost
+        isHost: isHost.value
       });
 
       // Nếu đã hết thời gian, xử lý ngay
@@ -327,12 +335,12 @@ watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.t
       if (isTimerEnabled && !startTime) {
         console.log('Timer enabled but not started yet - waiting for host to start', {
           playerId: props.playerId,
-          isHost: props.isHost
+          isHost: isHost.value
         });
       } else if (!isTimerEnabled) {
         console.log('Timer not enabled', {
           playerId: props.playerId,
-          isHost: props.isHost
+          isHost: isHost.value
         });
       }
     }
@@ -417,19 +425,53 @@ const handleTimerExpired = async () => {
 
     // Show message and redirect after a delay
     setTimeout(() => {
-      emit('back');
+      router.push('/');
     }, 3000);
   } catch (error) {
     console.error('Error handling timer expiration:', error);
     // Still redirect even if save fails
     setTimeout(() => {
-      emit('back');
+      router.push('/');
     }, 3000);
   }
 };
 
-const handleLeaveRoom = () => {
-  emit('back');
+const handleLeaveRoom = async () => {
+  if (confirm('Bạn có chắc muốn rời phòng? Kết quả của bạn sẽ được lưu vào bảng xếp hạng.')) {
+    try {
+      // Lưu kết quả của người chơi vào leaderboard trước khi rời phòng
+      if (room.value?.batchId && room.value?.players?.[props.playerId]) {
+        const currentPlayer = room.value.players[props.playerId];
+
+        // Tạo object chỉ chứa player hiện tại để lưu ranking
+        const playerDataForRanking = {
+          [props.playerId]: {
+            name: currentPlayer.name,
+            score: currentPlayer.score || 0
+          }
+        };
+
+        // Lưu xếp hạng tổng hợp (tích lũy) cho người chơi này
+        await saveRanking(room.value.batchId, playerDataForRanking);
+
+        console.log('Player ranking saved before leaving room:', {
+          playerId: props.playerId,
+          playerName: currentPlayer.name,
+          score: currentPlayer.score
+        });
+      }
+
+      // Remove player from room
+      if (room.value?.players?.[props.playerId]) {
+        await removePlayer(props.roomCode, props.playerId);
+      }
+    } catch (error) {
+      console.error('Error saving ranking or removing player:', error);
+      // Vẫn cho phép rời phòng ngay cả khi có lỗi
+    }
+    // Navigate back to dashboard
+    router.push('/');
+  }
 };
 
 // Track các answer đã được xử lý để tránh cộng điểm nhiều lần

@@ -480,6 +480,13 @@ label {
     font-size: 18px;
   }
 
+  .leave-room-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    margin-left: 6px;
+  }
+
   .leaderboard-popup {
     max-width: 100%;
     max-height: 90vh;
@@ -827,6 +834,34 @@ label {
   min-width: 18px;
   text-align: center;
   line-height: 1.4;
+}
+
+.leave-room-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #dc3545;
+  border: none;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+  padding: 0;
+  margin: 0;
+  margin-left: 8px;
+}
+
+.leave-room-btn:hover {
+  background: #c82333;
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.4);
+}
+
+.leave-room-icon {
+  display: block;
 }
 
 .game-room-content {

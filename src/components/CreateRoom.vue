@@ -44,11 +44,11 @@
       </div>
       
       <button @click="joinRoom" :disabled="!hostName.trim() || (timerEnabled && (!timerDuration || timerDuration < 1))">Vào phòng</button>
-      <button class="secondary" @click="$emit('back')">Quay lại</button>
+      <button class="secondary" @click="router.push('/')">Quay lại</button>
     </div>
     <div v-else>
       <button @click="createRoom">Tạo phòng mới</button>
-      <button class="secondary" @click="$emit('back')">Quay lại</button>
+      <button class="secondary" @click="router.push('/')">Quay lại</button>
     </div>
   </div>
 </template>
@@ -57,6 +57,7 @@
 import { ref, onMounted } from 'vue';
 import { createRoom as createRoomInDb, getBatch, generateRoomCode, addPlayer, generateSessionId } from '../firebase/db.js';
 import { generatePlayerId } from '../utils/helpers.js';
+import { useRouter } from 'vue-router';
 
 const props = defineProps({
   batchId: {
@@ -65,7 +66,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['back', 'room-created']);
+const router = useRouter();
 
 const loading = ref(false);
 const roomCode = ref(null);
@@ -80,11 +81,11 @@ onMounted(async () => {
     batch.value = await getBatch(props.batchId);
     if (!batch.value) {
       alert('Không tìm thấy đợt học');
-      emit('back');
+      router.push('/');
     }
   } catch (error) {
     alert('Lỗi: ' + error.message);
-    emit('back');
+    router.push('/');
   }
 });
 
@@ -164,7 +165,8 @@ const joinRoom = async () => {
       await updateRoom(roomCode.value, updateData);
     }
     
-    emit('room-created', roomCode.value, hostPlayerId.value);
+    // Navigate to game room
+    router.push(`/game/${roomCode.value}/${hostPlayerId.value}`);
   } catch (error) {
     alert('Lỗi: ' + error.message);
   }
