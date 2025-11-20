@@ -14,6 +14,8 @@ export function useArrangeMode(room, batch) {
   });
 
   const isArrangeMode = computed(() => {
+    console.log('room.value', room.value);
+    
     return room.value?.gameMode === 'arrange';
   });
 

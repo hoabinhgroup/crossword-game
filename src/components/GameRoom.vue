@@ -206,7 +206,7 @@ watch(() => room.value?.answers, async (newAnswers) => {
 
 // Watch game mode and batch to initialize arrange mode
 watch(() => [room.value?.gameMode, batch.value?.words], ([gameMode, words]) => {
-  if (gameMode !== 'arrange' && words) {
+  if (gameMode === 'arrange' && words) {
     initializeArrangeMode(words, room.value?.answers);
   }
 }, { immediate: true, deep: true });
@@ -304,7 +304,7 @@ async function initializeBatch(roomData) {
       });
 
       // Initialize arrange mode if needed
-      if (roomData.gameMode !== 'arrange') {
+      if (roomData.gameMode === 'arrange') {
         initializeArrangeMode(batch.value.words, roomData.answers);
       }
     }

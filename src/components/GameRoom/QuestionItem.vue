@@ -19,7 +19,7 @@
 
         <div v-else>
             <!-- Type Mode: Input field -->
-            <div v-if="isArrangeMode" class="answer-input">
+            <div v-if="!isArrangeMode" class="answer-input">
                 <input v-model="localAnswer" :placeholder="'_'.repeat(word.answer.length)"
                     :maxlength="word.answer.length" @keyup.enter="$emit('submit-answer', wordId, word.answer)"
                     :disabled="room.answers?.[wordId]?.correct || timerExpired" />
@@ -90,7 +90,7 @@ const props = defineProps({
     word: { type: Object, required: true },
     wordId: { type: String, required: true },
     room: { type: Object, required: true },
-    isArrangeMode: { type: Boolean, default: false },
+    isArrangeMode: { type: Boolean, default: true },
     arrangedLetters: { type: Object, default: () => ({}) },
     availableLetters: { type: Object, default: () => ({}) },
     answerStatus: { type: Object, default: () => ({}) },
