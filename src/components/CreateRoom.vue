@@ -62,7 +62,11 @@
     </div>
   </div>
 </template>
-
+<style scoped>
+label input {
+  margin-bottom: 0px;
+}
+</style>
 <script setup>
 import { ref, onMounted } from 'vue';
 import { createRoom as createRoomInDb, getBatch, generateRoomCode, addPlayer, generateSessionId } from '../firebase/db.js';
