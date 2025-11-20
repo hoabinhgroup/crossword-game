@@ -7,7 +7,13 @@
             <div v-if="word.imageUrl" class="question-image">
                 <img :src="word.imageUrl" :alt="word.clue" />
             </div>
-            <div>{{ word.clue }}</div>
+            <div class="clue-content">
+                <span>{{ word.clue }}</span>
+                <button class="speak-btn" @click="speakWord" :disabled="isSpeaking" :title="`Phát âm: ${word.answer}`">
+                    <span v-if="!isSpeaking">🔊</span>
+                    <span v-else>⏸️</span>
+                </button>
+            </div>
         </div>
 
         <div v-if="room.answers?.[wordId]?.correct" class="answer-status correct">
@@ -77,14 +83,68 @@
     </li>
 </template>
 
-<style>
+<style scoped>
 .available-letters div {
     display: flex;
     column-gap: 8px;
 }
+
+.clue-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.clue-content span {
+    flex: 1;
+    min-width: 0;
+}
+
+.speak-btn {
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 18px;
+    padding: 0;
+    margin: 0;
+    flex-shrink: 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.speak-btn:hover:not(:disabled) {
+    background: #5568d3;
+    transform: scale(1.1);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.speak-btn:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.speak-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+    .speak-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
+}
 </style>
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onUnmounted } from 'vue';
 
 const props = defineProps({
     word: { type: Object, required: true },
@@ -106,6 +166,51 @@ const localAnswer = computed({
     get: () => props.answers[props.wordId] || '',
     set: (value) => {
         emit('update:answers', { ...props.answers, [props.wordId]: value });
+    }
+});
+
+const isSpeaking = ref(false);
+
+const speakWord = () => {
+    if (!props.word.answer) return;
+
+    // Dừng phát âm hiện tại nếu có
+    if (isSpeaking.value) {
+        speechSynthesis.cancel();
+        isSpeaking.value = false;
+        return;
+    }
+
+    // Kiểm tra browser support
+    if (!('speechSynthesis' in window)) {
+        alert('Trình duyệt của bạn không hỗ trợ tính năng phát âm');
+        return;
+    }
+
+    isSpeaking.value = true;
+
+    const utter = new SpeechSynthesisUtterance(props.word.answer);
+    utter.lang = 'en-US'; // Tiếng Anh
+    utter.rate = 0.8; // Tốc độ phát âm (0.1 - 10)
+    utter.pitch = 1; // Cao độ (0 - 2)
+    utter.volume = 1; // Âm lượng (0 - 1)
+
+    utter.onend = () => {
+        isSpeaking.value = false;
+    };
+
+    utter.onerror = (error) => {
+        console.error('Speech synthesis error:', error);
+        isSpeaking.value = false;
+    };
+
+    speechSynthesis.speak(utter);
+};
+
+// Cleanup: Dừng phát âm khi component unmount
+onUnmounted(() => {
+    if (isSpeaking.value) {
+        speechSynthesis.cancel();
     }
 });
 </script>
