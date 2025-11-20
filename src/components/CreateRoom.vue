@@ -17,6 +17,37 @@
         />
       </div>
       
+      <!-- Game Mode Selection -->
+      <div class="form-group">
+        <label>Kiểu trả lời:</label>
+        <div style="display: flex; gap: 12px; margin-top: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; flex: 1; transition: all 0.3s;" 
+                 :style="{ borderColor: gameMode === 'type' ? '#667eea' : '#e0e0e0', background: gameMode === 'type' ? '#f0f4ff' : 'white' }">
+            <input 
+              type="radio" 
+              v-model="gameMode"
+              value="type"
+              style="width: auto;"
+            />
+            <span>✍️ Điền kết quả</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; flex: 1; transition: all 0.3s;"
+                 :style="{ borderColor: gameMode === 'arrange' ? '#667eea' : '#e0e0e0', background: gameMode === 'arrange' ? '#f0f4ff' : 'white' }">
+            <input 
+              type="radio" 
+              v-model="gameMode"
+              value="arrange"
+              style="width: auto;"
+            />
+            <span>🔤 Sắp xếp từ</span>
+          </label>
+        </div>
+        <p style="font-size: 12px; color: #666; margin-top: 8px;">
+          <span v-if="gameMode === 'type'">Người chơi sẽ gõ đáp án vào ô trống.</span>
+          <span v-else>Người chơi sẽ sắp xếp các ký tự để tạo thành từ đúng.</span>
+        </p>
+      </div>
+
       <!-- Timer Settings -->
       <div class="form-group">
         <label style="display: flex; align-items: center; gap: 8px;">
@@ -73,6 +104,7 @@ const roomCode = ref(null);
 const batch = ref(null);
 const hostName = ref('');
 const hostPlayerId = ref(null);
+const gameMode = ref('type'); // 'type' or 'arrange'
 const timerEnabled = ref(false);
 const timerDuration = ref(10); // Default 10 minutes
 
@@ -109,6 +141,7 @@ const createRoom = async () => {
       answers: {},
       createdAt: Date.now(),
       sessionStartTime: Date.now(),
+      gameMode: gameMode.value, // 'type' or 'arrange'
       timerEnabled: Boolean(timerEnabled.value), // Đảm bảo là boolean
       timerDuration: timerEnabled.value ? (timerDuration.value * 60) : null, // Convert to seconds
       timerStartTime: null // Will be set when game starts

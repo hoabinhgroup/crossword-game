@@ -107,11 +107,50 @@
               </div>
 
               <div v-else>
-                <div class="answer-input">
+                <!-- Type Mode: Input field -->
+                <div v-if="isArrangeMode" class="answer-input">
                   <input v-model="answers[wordId]" :placeholder="'_'.repeat(word.answer.length)"
                     :maxlength="word.answer.length" @keyup.enter="submitAnswer(wordId, word.answer)"
                     :disabled="room.answers?.[wordId]?.correct || timerExpired" />
                   <button @click="submitAnswer(wordId, word.answer)" :disabled="timerExpired">Gửi</button>
+                </div>
+
+                <!-- Arrange Mode: Letter arrangement with drag & drop -->
+                <div v-else class="arrange-mode">
+                  <div class="arrange-slots">
+                    <div v-for="(slot, index) in word.answer.length" :key="`slot-${wordId}-${index}`"
+                      class="letter-slot" :class="{ 'filled': arrangedLetters[wordId]?.[index] }"
+                      @drop="handleDrop($event, wordId, index)" @dragover.prevent
+                      @dragenter.prevent="(e) => e.currentTarget.classList.add('drag-over')"
+                      @dragleave.prevent="(e) => e.currentTarget.classList.remove('drag-over')">
+                      <div v-if="arrangedLetters[wordId]?.[index]" class="letter-box arranged draggable"
+                        :draggable="true" @dragstart="handleDragStart($event, wordId, index)" @dragend="handleDragEnd">
+                        {{ arrangedLetters[wordId][index].toUpperCase() }}
+                      </div>
+                      <span v-else class="slot-placeholder">{{ index + 1 }}</span>
+                    </div>
+                  </div>
+                  <div class="available-letters" v-if="availableLetters[wordId] && availableLetters[wordId].length > 0">
+                    <p style="font-size: 14px; color: #666; margin-bottom: 8px; text-align: center; width: 100%;">
+                      Kéo các ký tự vào ô trống:
+                    </p>
+                    <div>
+                      <div v-for="(char, index) in availableLetters[wordId]" :key="`available-${wordId}-${index}`"
+                        class="letter-box available draggable" :draggable="true"
+                        @dragstart="handleDragStart($event, wordId, index, true)" @dragend="handleDragEnd">
+                        {{ char.toUpperCase() }}
+                      </div>
+                    </div>
+
+                  </div>
+                  <div v-else style="padding: 0px 20px; text-align: center; color: #999;">
+                    <p></p>
+                  </div>
+                  <button @click="submitArrangedAnswer(wordId, word.answer)"
+                    :disabled="!isArrangementComplete(wordId, word.answer.length) || timerExpired"
+                    style="margin-top: 16px;">
+                    Gửi
+                  </button>
                 </div>
 
                 <div v-if="answerStatus[wordId]" class="answer-status"
@@ -152,7 +191,12 @@
     </div>
   </div>
 </template>
-
+<style scoped>
+.available-letters>div {
+  display: flex;
+  column-gap: 5px;
+}
+</style>
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { watchRoom, getBatch, getRoom, submitAnswer as submitAnswerToDb, updatePlayer, updateRoom, saveRanking, generateSessionId, saveSessionLeaderboard, removePlayer } from '../firebase/db.js';
@@ -190,6 +234,10 @@ const sessionStartTime = ref(null);
 const timeRemaining = ref(null);
 const timerExpired = ref(false);
 const showLeaderboardPopup = ref(false);
+
+// Arrange mode state
+const arrangedLetters = ref({}); // { wordId: ['a', 'b', 'c'] }
+const availableLetters = ref({}); // { wordId: ['c', 'a', 'b'] } - shuffled
 let gameTimer = null;
 let timerCheckInterval = null;
 let unsubscribe = null;
@@ -202,6 +250,17 @@ const sortedPlayers = computed(() => {
       acc[id] = player;
       return acc;
     }, {});
+});
+
+const isArrangeMode = computed(() => {
+  const gameMode = room.value?.gameMode;
+  console.log('GameMode check:', {
+    gameMode,
+    isArrange: gameMode === 'arrange',
+    roomValue: room.value,
+    availableLetters: availableLetters.value
+  });
+  return gameMode === 'arrange';
 });
 
 const gameEnded = computed(() => {
@@ -276,7 +335,75 @@ watch(() => props.roomCode, () => {
   sessionStartTime.value = null;
   timeRemaining.value = null;
   timerExpired.value = false;
+  arrangedLetters.value = {};
+  availableLetters.value = {};
 });
+
+// Shuffle array function (Fisher-Yates algorithm)
+const shuffleArray = (array) => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+// Initialize arrange mode when room and batch are loaded
+watch(() => [room.value?.gameMode, batch.value?.words], ([gameMode, words]) => {
+  console.log('[Watch] GameMode changed:', {
+    gameMode,
+    hasWords: !!words,
+    wordsKeys: words ? Object.keys(words) : [],
+    roomValue: room.value
+  });
+
+  // Note: isArrangeMode === true means show INPUT, false means show ARRANGE
+  // So we initialize when gameMode !== 'arrange' (i.e., when we want arrange UI)
+  if (gameMode !== 'arrange' && words) {
+    Object.keys(words).forEach(wordId => {
+      // Only initialize if not already initialized and question not answered
+      if (!room.value?.answers?.[wordId]?.correct) {
+        // Check if not initialized or empty
+        if (!availableLetters.value[wordId] || availableLetters.value[wordId].length === 0) {
+          const word = words[wordId];
+          const answer = word.answer.toLowerCase();
+
+          console.log(`[Watch] Initializing arrange mode for wordId: ${wordId}, answer: ${answer}`);
+
+          // Shuffle letters for arrange mode using Fisher-Yates algorithm
+          const letters = answer.split('');
+          let shuffledLetters = shuffleArray(letters);
+
+          // Ensure it's actually shuffled (not the same order)
+          let attempts = 0;
+          while (shuffledLetters.join('') === answer && attempts < 10) {
+            shuffledLetters = shuffleArray(letters);
+            attempts++;
+          }
+
+          // Force reactivity by creating new array
+          availableLetters.value[wordId] = [...shuffledLetters];
+          // Initialize with null array of correct length if not exists
+          if (!arrangedLetters.value[wordId] || arrangedLetters.value[wordId].length !== answer.length) {
+            arrangedLetters.value[wordId] = new Array(answer.length).fill(null);
+          }
+
+          console.log(`[Watch] Shuffled "${answer}" to "${shuffledLetters.join('')}" for wordId: ${wordId}`);
+          console.log(`[Watch] Available letters for ${wordId}:`, availableLetters.value[wordId]);
+          console.log(`[Watch] Full availableLetters object:`, availableLetters.value);
+
+          // Force reactivity update
+          availableLetters.value = { ...availableLetters.value };
+        } else {
+          console.log(`[Watch] Already initialized for wordId: ${wordId}`, availableLetters.value[wordId]);
+        }
+      }
+    });
+  } else {
+    console.log('[Watch] Not arranging - gameMode:', gameMode, 'hasWords:', !!words);
+  }
+}, { immediate: true, deep: true });
 
 // Watch timer and calculate remaining time - Realtime sync
 watch(() => [room.value?.timerEnabled, room.value?.timerStartTime, room.value?.timerDuration],
@@ -552,7 +679,43 @@ onMounted(async () => {
         if (batch.value && batch.value.words) {
           Object.keys(batch.value.words).forEach(wordId => {
             answers.value[wordId] = '';
+
+            // Initialize arrange mode if needed
+            // Note: isArrangeMode === true means show INPUT, false means show ARRANGE
+            // So we initialize when gameMode !== 'arrange' (i.e., when we want arrange UI)
+            if (roomData.gameMode !== 'arrange') {
+              const word = batch.value.words[wordId];
+              const answer = word.answer.toLowerCase();
+
+              console.log(`[onMounted] Initializing arrange for wordId: ${wordId}, answer: ${answer}`);
+
+              // Shuffle letters for arrange mode using Fisher-Yates algorithm
+              const letters = answer.split('');
+              let shuffledLetters = shuffleArray(letters);
+
+              // Ensure it's actually shuffled (not the same order)
+              let attempts = 0;
+              while (shuffledLetters.join('') === answer && attempts < 10) {
+                shuffledLetters = shuffleArray(letters);
+                attempts++;
+              }
+
+              // Force reactivity by creating new array
+              availableLetters.value[wordId] = [...shuffledLetters];
+              // Initialize with null array of correct length
+              arrangedLetters.value[wordId] = new Array(answer.length).fill(null);
+
+              console.log(`[onMounted] Shuffled "${answer}" to "${shuffledLetters.join('')}" for wordId: ${wordId}`);
+              console.log(`[onMounted] Available letters set:`, availableLetters.value[wordId]);
+              console.log(`[onMounted] Full availableLetters:`, availableLetters.value);
+            }
           });
+
+          // Force reactivity update after all words are initialized
+          if (roomData.gameMode !== 'arrange') {
+            console.log('[onMounted] Force updating availableLetters reactivity');
+            availableLetters.value = { ...availableLetters.value };
+          }
         }
 
         // Đánh dấu các answer đã có sẵn là đã xử lý (tránh cộng điểm lại)
@@ -595,6 +758,157 @@ onUnmounted(() => {
   if (gameTimer) clearInterval(gameTimer);
   if (timerCheckInterval) clearInterval(timerCheckInterval);
 });
+
+// Arrange mode state
+const dragState = ref({
+  wordId: null,
+  sourceIndex: null,
+  isFromAvailable: false,
+  isDragging: false
+});
+
+// Arrange mode functions - Drag & Drop
+const handleDragStart = (event, wordId, index, isFromAvailable = false) => {
+  dragState.value = {
+    wordId,
+    sourceIndex: index,
+    isFromAvailable,
+    isDragging: true
+  };
+  event.dataTransfer.effectAllowed = 'move';
+  event.target.style.opacity = '0.5';
+};
+
+const handleDragEnd = (event) => {
+  event.target.style.opacity = '1';
+  dragState.value.isDragging = false;
+};
+
+const handleDrop = (event, wordId, slotIndex) => {
+  event.preventDefault();
+  event.currentTarget.classList.remove('drag-over');
+
+  if (!dragState.value.isDragging || dragState.value.wordId !== wordId) return;
+
+  const { sourceIndex, isFromAvailable } = dragState.value;
+
+  // Initialize arrays if needed
+  if (!arrangedLetters.value[wordId]) {
+    arrangedLetters.value[wordId] = new Array(wordId.length).fill(null);
+  }
+  if (!availableLetters.value[wordId]) {
+    availableLetters.value[wordId] = [];
+  }
+
+  let letter;
+
+  if (isFromAvailable) {
+    // Dragging from available letters
+    if (sourceIndex >= availableLetters.value[wordId].length) return;
+    letter = availableLetters.value[wordId][sourceIndex];
+
+    // If slot is already filled, return letter to available
+    if (arrangedLetters.value[wordId][slotIndex]) {
+      const oldLetter = arrangedLetters.value[wordId][slotIndex];
+      availableLetters.value[wordId][sourceIndex] = oldLetter;
+    } else {
+      availableLetters.value[wordId].splice(sourceIndex, 1);
+    }
+
+    arrangedLetters.value[wordId][slotIndex] = letter;
+  } else {
+    // Dragging from arranged slots
+    if (sourceIndex >= arrangedLetters.value[wordId].length || !arrangedLetters.value[wordId][sourceIndex]) return;
+    letter = arrangedLetters.value[wordId][sourceIndex];
+
+    // If target slot is filled, swap
+    if (arrangedLetters.value[wordId][slotIndex]) {
+      const oldLetter = arrangedLetters.value[wordId][slotIndex];
+      arrangedLetters.value[wordId][sourceIndex] = oldLetter;
+    } else {
+      arrangedLetters.value[wordId][sourceIndex] = null;
+    }
+
+    arrangedLetters.value[wordId][slotIndex] = letter;
+  }
+
+  // Clean up: remove nulls and ensure proper length
+  const wordLength = batch.value?.words?.[wordId]?.answer?.length || 0;
+  if (wordLength > 0) {
+    // Ensure array has correct length
+    while (arrangedLetters.value[wordId].length < wordLength) {
+      arrangedLetters.value[wordId].push(null);
+    }
+    arrangedLetters.value[wordId] = arrangedLetters.value[wordId].slice(0, wordLength);
+  }
+
+  dragState.value.isDragging = false;
+};
+
+const isArrangementComplete = (wordId, expectedLength) => {
+  if (!arrangedLetters.value[wordId]) return false;
+  const arranged = arrangedLetters.value[wordId].filter(char => char !== null && char !== undefined);
+  return arranged.length === expectedLength;
+};
+
+const submitArrangedAnswer = async (wordId, correctAnswer) => {
+  if (!arrangedLetters.value[wordId]) return;
+
+  const userAnswer = arrangedLetters.value[wordId]
+    .filter(char => char !== null && char !== undefined)
+    .join('')
+    .toLowerCase();
+  const isCorrect = userAnswer === correctAnswer.toLowerCase();
+
+  if (isCorrect) {
+    try {
+      const answerKey = `${wordId}_${props.playerId}`;
+      processedAnswers.value.add(answerKey);
+
+      await submitAnswerToDb(props.roomCode, wordId, {
+        answeredBy: props.playerId,
+        correct: true,
+        timestamp: Date.now()
+      });
+
+      let currentScore = 0;
+      try {
+        const latestRoom = await getRoom(props.roomCode);
+        if (latestRoom?.players?.[props.playerId]) {
+          currentScore = latestRoom.players[props.playerId].score || 0;
+        }
+      } catch (e) {
+        currentScore = room.value?.players?.[props.playerId]?.score || 0;
+        console.warn('Could not fetch latest room data, using cached value:', e);
+      }
+
+      const points = calculateScore(10);
+      await updatePlayer(props.roomCode, props.playerId, {
+        score: currentScore + points
+      });
+
+      answerStatus.value[wordId] = null;
+      // Clear arranged letters
+      arrangedLetters.value[wordId] = [];
+    } catch (error) {
+      const answerKey = `${wordId}_${props.playerId}`;
+      processedAnswers.value.delete(answerKey);
+
+      answerStatus.value[wordId] = {
+        correct: false,
+        message: 'Lỗi: ' + error.message
+      };
+    }
+  } else {
+    answerStatus.value[wordId] = {
+      correct: false,
+      message: '❌ Sai rồi! Hãy sắp xếp lại.'
+    };
+    setTimeout(() => {
+      answerStatus.value[wordId] = null;
+    }, 2000);
+  }
+};
 
 const submitAnswer = async (wordId, correctAnswer) => {
   const userAnswer = answers.value[wordId]?.trim().toLowerCase();
