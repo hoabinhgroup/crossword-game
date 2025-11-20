@@ -147,7 +147,7 @@
                     <p></p>
                   </div>
                   <button @click="submitArrangedAnswer(wordId, word.answer)"
-                    :disabled="!isArrangementComplete(wordId, word.answer.length) || timerExpired"
+                    :disabled="!isArrangementComplete(wordId, word.answer.length) || timerExpired || room.answers?.[wordId]?.correct"
                     style="margin-top: 16px;">
                     Gửi
                   </button>
@@ -854,11 +854,27 @@ const isArrangementComplete = (wordId, expectedLength) => {
 const submitArrangedAnswer = async (wordId, correctAnswer) => {
   if (!arrangedLetters.value[wordId]) return;
 
+  // Check if already answered
+  if (room.value?.answers?.[wordId]?.correct) {
+    return;
+  }
+
   const userAnswer = arrangedLetters.value[wordId]
     .filter(char => char !== null && char !== undefined)
     .join('')
-    .toLowerCase();
-  const isCorrect = userAnswer === correctAnswer.toLowerCase();
+    .toLowerCase()
+    .trim();
+
+  const expectedAnswer = correctAnswer.toLowerCase().trim();
+  const isCorrect = userAnswer === expectedAnswer;
+
+  console.log('[submitArrangedAnswer]', {
+    wordId,
+    userAnswer,
+    expectedAnswer,
+    isCorrect,
+    arrangedLetters: arrangedLetters.value[wordId]
+  });
 
   if (isCorrect) {
     try {
@@ -987,6 +1003,7 @@ const submitAnswer = async (wordId, correctAnswer) => {
 };
 
 const getPlayerName = (playerId) => {
+  if (!playerId) return 'Unknown';
   return room.value?.players[playerId]?.name || 'Unknown';
 };
 
