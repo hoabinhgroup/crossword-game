@@ -5,8 +5,8 @@
 
 // Sound file paths
 const SOUNDS = {
-  success: '/sounds/success.mp3',
-  error: '/sounds/error.mp3',
+  success: '/sounds/success.wav',
+  error: '/sounds/error.wav',
   timerWarning: '/sounds/timer-warning.mp3',
   timerDanger: '/sounds/timer-danger.mp3',
   gameEnd: '/sounds/game-end.mp3'
